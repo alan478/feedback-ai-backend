@@ -14,7 +14,7 @@ export function getNicheQuestions(niche: NicheType): OnboardingQuestion[] {
     dental_clinic: [
       {
         id: 'dental_services',
-        question: 'What services does your practice offer?',
+        question: 'What services does your practice offer? (Select all that apply)',
         type: 'multi-select',
         field: 'nicheData',
         required: true,
@@ -25,6 +25,9 @@ export function getNicheQuestions(niche: NicheType): OnboardingQuestion[] {
           { label: 'Implants', value: 'implants' },
           { label: 'Orthodontics', value: 'orthodontics' },
           { label: 'Emergency Dental', value: 'emergency' },
+          { label: 'Root Canal Treatment', value: 'root_canal' },
+          { label: 'Teeth Whitening', value: 'whitening' },
+          { label: 'Pediatric Dentistry', value: 'pediatric' },
         ],
       },
       {
@@ -34,10 +37,36 @@ export function getNicheQuestions(niche: NicheType): OnboardingQuestion[] {
         field: 'nicheData',
         required: true,
         options: [
-          { label: 'Yes, most plans', value: 'yes' },
-          { label: 'Some plans only', value: 'some' },
+          { label: 'Yes', value: 'yes' },
           { label: 'No', value: 'no' },
         ],
+        followUpQuestionId: 'dental_insurance_providers',
+        followUpTriggerValues: ['yes'],
+      },
+      {
+        id: 'dental_insurance_providers',
+        question: 'Which insurance providers do you accept? (Select all that apply)',
+        type: 'insurance-select',
+        field: 'nicheData',
+        required: true,
+        options: [
+          { label: 'Delta Dental', value: 'delta_dental' },
+          { label: 'Cigna Dental', value: 'cigna' },
+          { label: 'Aetna Dental', value: 'aetna' },
+          { label: 'MetLife Dental', value: 'metlife' },
+          { label: 'United Healthcare Dental', value: 'united_healthcare' },
+          { label: 'Guardian Dental', value: 'guardian' },
+          { label: 'Humana Dental', value: 'humana' },
+          { label: 'Blue Cross Blue Shield', value: 'bcbs' },
+          { label: 'Anthem Dental', value: 'anthem' },
+          { label: 'Principal Dental', value: 'principal' },
+          { label: 'Sun Life Dental', value: 'sun_life' },
+          { label: 'Ameritas Dental', value: 'ameritas' },
+        ],
+        skipCondition: (state: OnboardingState) => {
+          const nicheData = state.nicheData as any;
+          return nicheData?.dental_insurance !== 'yes';
+        },
       },
       {
         id: 'dental_emergency',
@@ -52,17 +81,12 @@ export function getNicheQuestions(niche: NicheType): OnboardingQuestion[] {
         ],
       },
       {
-        id: 'dental_booking_leadtime',
-        question: "What's the typical lead time for appointments?",
-        type: 'buttons',
+        id: 'dental_clinic_hours',
+        question: 'What are your clinic hours?',
+        type: 'schedule',
         field: 'nicheData',
-        required: false,
-        options: [
-          { label: 'Same-day available', value: 'same_day' },
-          { label: '24-48 hours', value: '24_48_hours' },
-          { label: '1 week', value: '1_week' },
-          { label: '2+ weeks', value: '2_weeks_plus' },
-        ],
+        required: true,
+        options: [], // Schedule type doesn't use standard options
       },
     ],
 

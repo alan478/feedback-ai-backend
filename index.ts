@@ -41,11 +41,11 @@ const server = serve({
     "/api/v1/onboarding/message": {
       POST: async (req) => {
         const body = await req.json();
-        const { sessionId, message } = body;
+        const { sessionId, message, niche } = body;
 
-        if (!sessionId || !message) {
+        if (!sessionId || (!message && !niche)) {
           return new Response(
-            JSON.stringify({ error: "Missing sessionId or message" }),
+            JSON.stringify({ error: "Missing sessionId or message/niche" }),
             { status: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
         }
@@ -56,8 +56,10 @@ const server = serve({
           state = initializeOnboarding();
         }
 
-        // Process the input
-        const response = processOnboardingInput(message, state);
+        // Process the input - if niche is provided directly, use quick start flow
+        const response = niche
+          ? processOnboardingInput(message || "", state, niche)
+          : processOnboardingInput(message, state);
 
         // Update session
         onboardingSessions.set(sessionId, response.state);

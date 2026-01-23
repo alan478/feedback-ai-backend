@@ -32,11 +32,20 @@ const STAGES = {
 
 /**
  * Process user input and return next step in onboarding
+ * @param input - User's text input
+ * @param state - Current onboarding state
+ * @param directNiche - Optional: niche type passed directly from Quick Start
  */
 export function processOnboardingInput(
   input: string,
-  state: OnboardingState
+  state: OnboardingState,
+  directNiche?: NicheType
 ): OnboardingResponse {
+  // Handle Quick Start: direct niche selection
+  if (directNiche) {
+    return handleQuickStartNiche(directNiche, state);
+  }
+
   const currentStage = state.currentStage || STAGES.INITIAL_INPUT;
 
   // Add input to raw inputs
@@ -72,6 +81,28 @@ export function processOnboardingInput(
         state,
       };
   }
+}
+
+/**
+ * Handle Quick Start: direct niche selection
+ * Skips niche detection and goes straight to niche-specific questions
+ */
+function handleQuickStartNiche(niche: NicheType, state: OnboardingState): OnboardingResponse {
+  // Set niche directly with full confidence
+  state.niche = niche;
+  state.nicheConfidence = 1.0;
+  state.industry = getIndustryFromNiche(niche);
+  state.currentStage = STAGES.NICHE_DEEPENING;
+
+  const nicheLabel = formatNicheLabel(niche);
+
+  // Ask for business name first
+  return {
+    message: `Great choice! Let's set up your AI Front Desk for ${nicheLabel}.\n\nWhat's your business called?`,
+    stage: STAGES.NICHE_DEEPENING,
+    completed: false,
+    state,
+  };
 }
 
 /**
@@ -250,19 +281,42 @@ function handleNicheDeepening(input: string, state: OnboardingState): Onboarding
 
   const lowerInput = input.toLowerCase();
 
+  // Initialize nicheData if not exists
+  if (!state.nicheData) {
+    state.nicheData = {};
+  }
+
+  const questions = getNicheQuestions(state.niche);
+
+  // Initialize tracking arrays
+  if (!(state.nicheData as any).answeredQuestions) {
+    (state.nicheData as any).answeredQuestions = [];
+  }
+  if (!(state.nicheData as any).answeredQuestionIds) {
+    (state.nicheData as any).answeredQuestionIds = [];
+  }
+
+  const answeredIds = (state.nicheData as any).answeredQuestionIds as string[];
+
   // Handle skip/don't know
   if (lowerInput.includes("skip") || lowerInput.includes("don't know") || lowerInput.includes("not sure") || lowerInput === "idk") {
     if (!state.fieldsSkippedByUser) {
       state.fieldsSkippedByUser = [];
     }
-    state.fieldsSkippedByUser.push(`niche_question_${Object.keys(state.nicheData || {}).length}`);
 
-    // Move to next question or stage
-    const questions = getNicheQuestions(state.niche);
-    const answeredCount = Object.keys(state.nicheData || {}).length;
+    // Find current question (first unanswered, non-skipped question)
+    const currentQuestion = questions.find(q =>
+      !answeredIds.includes(q.id) && !shouldSkipQuestion(q, state)
+    );
 
-    if (answeredCount + 1 < questions.length) {
-      const nextQuestion = questions[answeredCount + 1];
+    if (currentQuestion) {
+      state.fieldsSkippedByUser.push(currentQuestion.id);
+      answeredIds.push(currentQuestion.id);
+    }
+
+    // Find next question
+    const nextQuestion = findNextQuestion(questions, answeredIds, state);
+    if (nextQuestion) {
       return {
         message: "No problem! Let's move on. " + nextQuestion.question,
         question: nextQuestion,
@@ -276,39 +330,25 @@ function handleNicheDeepening(input: string, state: OnboardingState): Onboarding
     }
   }
 
-  // Store the answer
-  if (!state.nicheData) {
-    state.nicheData = {};
-  }
+  // Find current question being answered
+  const currentQuestion = questions.find(q =>
+    !answeredIds.includes(q.id) && !shouldSkipQuestion(q, state)
+  );
 
-  const questions = getNicheQuestions(state.niche);
-
-  // Track the current question being answered
-  if (!state.nicheData.answeredQuestions) {
-    (state.nicheData as any).answeredQuestions = [];
-  }
-
-  // Store the current answer
-  const currentQuestionIndex = (state.nicheData as any).answeredQuestions.length;
-  if (currentQuestionIndex < questions.length) {
-    const currentQuestion = questions[currentQuestionIndex];
+  if (currentQuestion) {
+    // Store the answer with question ID
+    (state.nicheData as any)[currentQuestion.id] = input;
     (state.nicheData as any).answeredQuestions.push({
       question: currentQuestion.id,
       answer: input,
     });
+    answeredIds.push(currentQuestion.id);
   }
 
-  const answeredCount = (state.nicheData as any).answeredQuestions.length;
+  // Find next question (respecting skip conditions which may have changed based on answer)
+  const nextQuestion = findNextQuestion(questions, answeredIds, state);
 
-  // Get next question
-  if (answeredCount < questions.length) {
-    const nextQuestion = questions[answeredCount];
-
-    // Skip if condition met
-    if (shouldSkipQuestion(nextQuestion, state)) {
-      return handleNicheDeepening(input, state); // Recursive skip
-    }
-
+  if (nextQuestion) {
     return {
       message: nextQuestion.question,
       question: nextQuestion,
@@ -321,6 +361,22 @@ function handleNicheDeepening(input: string, state: OnboardingState): Onboarding
 
   // All questions answered, move to scope definition
   return startScopeDefinition(state);
+}
+
+/**
+ * Find the next unanswered question that shouldn't be skipped
+ */
+function findNextQuestion(
+  questions: OnboardingQuestion[],
+  answeredIds: string[],
+  state: OnboardingState
+): OnboardingQuestion | null {
+  for (const question of questions) {
+    if (!answeredIds.includes(question.id) && !shouldSkipQuestion(question, state)) {
+      return question;
+    }
+  }
+  return null;
 }
 
 /**

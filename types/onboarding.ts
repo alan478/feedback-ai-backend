@@ -146,14 +146,23 @@ export interface QuestionOption {
   description?: string;
 }
 
+export interface DaySchedule {
+  day: string;
+  isOpen: boolean;
+  openTime?: string;
+  closeTime?: string;
+}
+
 export interface OnboardingQuestion {
   id: string;
   question: string;
-  type: 'text' | 'select' | 'multi-select' | 'buttons' | 'confirmation';
+  type: 'text' | 'select' | 'multi-select' | 'buttons' | 'confirmation' | 'schedule' | 'insurance-select';
   options?: QuestionOption[];
   field: keyof OnboardingState;
   required: boolean;
   skipCondition?: (state: OnboardingState) => boolean;
+  followUpQuestionId?: string; // ID of follow-up question to show based on answer
+  followUpTriggerValues?: string[]; // Values that trigger the follow-up
 }
 
 export interface OnboardingResponse {
