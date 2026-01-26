@@ -1,0 +1,280 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  owner
+  admin
+  member
+  viewer
+}
+
+enum OrgPlan {
+  free
+  starter
+  pro
+  enterprise
+}
+
+enum AgentStatus {
+  draft
+  published
+  archived
+}
+
+enum ConversationChannel {
+  widget
+  whatsapp
+  email
+  slack
+  teams
+  voice
+  api
+}
+
+enum ConversationStatus {
+  active
+  closed
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum LeadStatus {
+  new_lead
+  contacted
+  converted
+  lost
+}
+
+enum LeadSource {
+  call
+  chat
+  email
+  whatsapp
+}
+
+enum AppointmentStatus {
+  scheduled
+  completed
+  cancelled
+  rescheduled
+}
+
+enum KnowledgeSourceType {
+  text
+  url
+  file
+  faq
+}
+
+enum KnowledgeSourceStatus {
+  pending
+  processing
+  ready
+  error
+}
+
+// ─── Models ─────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  orgId        String   @map("org_id")
+  role         UserRole @default(member)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  organization       Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  onboardingSessions OnboardingSession[]
+
+  @@index([orgId])
+  @@index([email])
+  @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      OrgPlan  @default(free)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users        User[]
+  agents       Agent[]
+  leads        Lead[]
+  appointments Appointment[]
+
+  @@index([slug])
+  @@map("organizations")
+}
+
+model Agent {
+  id            String      @id @default(cuid())
+  orgId         String      @map("org_id")
+  name          String
+  niche         String?
+  industry      String?
+  greeting      String?
+  businessHours Json?       @map("business_hours")
+  status        AgentStatus @default(draft)
+  config        Json        @default("{}")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  organization       Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversations      Conversation[]
+  leads              Lead[]
+  appointments       Appointment[]
+  knowledgeSources   KnowledgeSource[]
+  onboardingSessions OnboardingSession[]
+
+  @@index([orgId])
+  @@index([status])
+  @@index([orgId, status])
+  @@map("agents")
+}
+
+model Conversation {
+  id        String             @id @default(cuid())
+  agentId   String             @map("agent_id")
+  channel   ConversationChannel
+  visitorId String             @map("visitor_id")
+  leadId    String?            @map("lead_id")
+  status    ConversationStatus @default(active)
+  metadata  Json?
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  agent    Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  messages Message[]
+
+  @@index([agentId])
+  @@index([visitorId])
+  @@index([leadId])
+  @@index([agentId, status])
+  @@index([createdAt])
+  @@map("conversations")
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String      @map("conversation_id")
+  role           MessageRole
+  content        String      @db.Text
+  metadata       Json?
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model Lead {
+  id        String     @id @default(cuid())
+  orgId     String     @map("org_id")
+  agentId   String     @map("agent_id")
+  name      String?
+  phone     String?
+  email     String?
+  intent    String?
+  status    LeadStatus @default(new_lead)
+  source    LeadSource
+  metadata  Json?
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  organization  Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  agent         Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  appointments  Appointment[]
+
+  @@index([orgId])
+  @@index([agentId])
+  @@index([status])
+  @@index([email])
+  @@index([orgId, status])
+  @@map("leads")
+}
+
+model Appointment {
+  id              String            @id @default(cuid())
+  orgId           String            @map("org_id")
+  agentId         String            @map("agent_id")
+  leadId          String?           @map("lead_id")
+  title           String
+  startTime       DateTime          @map("start_time")
+  endTime         DateTime          @map("end_time")
+  status          AppointmentStatus @default(scheduled)
+  calendarEventId String?           @map("calendar_event_id")
+  metadata        Json?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  lead         Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([agentId])
+  @@index([leadId])
+  @@index([startTime])
+  @@index([orgId, startTime])
+  @@index([status])
+  @@map("appointments")
+}
+
+model KnowledgeSource {
+  id        String                @id @default(cuid())
+  agentId   String                @map("agent_id")
+  type      KnowledgeSourceType
+  name      String
+  content   String?               @db.Text
+  url       String?
+  status    KnowledgeSourceStatus @default(pending)
+  metadata  Json?
+  createdAt DateTime              @default(now()) @map("created_at")
+  updatedAt DateTime              @updatedAt @map("updated_at")
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([agentId, status])
+  @@map("knowledge_sources")
+}
+
+model OnboardingSession {
+  id           String   @id @default(cuid())
+  agentId      String?  @map("agent_id")
+  userId       String?  @map("user_id")
+  state        Json     @default("{}")
+  currentStage Int      @default(0) @map("current_stage")
+  completed    Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([agentId])
+  @@index([completed])
+  @@map("onboarding_sessions")
+}
