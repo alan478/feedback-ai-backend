@@ -45,7 +45,7 @@ const server = serve({
     // Process onboarding input
     "/api/v1/onboarding/message": {
       POST: async (req) => {
-        const body = await req.json();
+        const body = await req.json() as { sessionId?: string; message?: string; niche?: string };
         const { sessionId, message, niche } = body;
 
         // Allow empty message if niche is provided (business type selection)
@@ -156,8 +156,21 @@ const server = serve({
     // Complete onboarding and create agent
     "/api/v1/onboarding/complete": {
       POST: async (req) => {
-        const body = await req.json();
+        const body = await req.json() as { sessionId?: string };
         const { sessionId } = body;
+
+        if (!sessionId) {
+          return new Response(
+            JSON.stringify({ error: "Missing sessionId" }),
+            {
+              status: 400,
+              headers: {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+              },
+            }
+          );
+        }
 
         const sessionRecord = await getSessionRecord(sessionId);
         if (!sessionRecord) {
