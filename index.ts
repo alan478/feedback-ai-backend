@@ -1,9 +1,25 @@
 import { serve } from "bun";
 import { processOnboardingInput, initializeOnboarding } from "./services/onboardingService";
+import { createAgentFromOnboarding, getAgent, rebuildAgentKnowledge } from "./services/agentPipeline";
+import { processChat, getConversationHistory, listConversations } from "./services/chatService";
 import type { OnboardingState } from "./types/onboarding";
 
 // In-memory storage for onboarding sessions (replace with DB in production)
 const onboardingSessions = new Map<string, OnboardingState>();
+
+// CORS headers helper
+const corsHeaders = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+};
+
+function jsonResponse(data: any, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: corsHeaders });
+}
+
+function errorResponse(message: string, status = 400) {
+  return new Response(JSON.stringify({ error: message }), { status, headers: corsHeaders });
+}
 
 const server = serve({
   port: process.env.PORT || 3000,
@@ -13,126 +29,174 @@ const server = serve({
       headers: { "Content-Type": "application/json" },
     }),
 
-    // Initialize onboarding session
+    // ===== Onboarding Endpoints =====
+
     "/api/v1/onboarding/start": {
       POST: (req) => {
         const sessionId = crypto.randomUUID();
         const state = initializeOnboarding();
         onboardingSessions.set(sessionId, state);
 
-        return new Response(
-          JSON.stringify({
-            sessionId,
-            message: "Tell me about your business in one sentence and I'll create a custom assistant for you.",
-            stage: 0,
-            state,
-          }),
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            },
-          }
-        );
-      },
-    },
-
-    // Process onboarding input
-    "/api/v1/onboarding/message": {
-      POST: async (req) => {
-        const body = await req.json();
-        const { sessionId, message, niche } = body;
-
-        if (!sessionId || (!message && !niche)) {
-          return new Response(
-            JSON.stringify({ error: "Missing sessionId or message/niche" }),
-            { status: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
-          );
-        }
-
-        let state = onboardingSessions.get(sessionId);
-        if (!state) {
-          // Session not found, create new one
-          state = initializeOnboarding();
-        }
-
-        // Process the input - if niche is provided directly, use quick start flow
-        const response = niche
-          ? processOnboardingInput(message || "", state, niche)
-          : processOnboardingInput(message, state);
-
-        // Update session
-        onboardingSessions.set(sessionId, response.state);
-
-        return new Response(JSON.stringify(response), {
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          },
+        return jsonResponse({
+          sessionId,
+          message: "Tell me about your business in one sentence and I'll create a custom assistant for you.",
+          stage: 0,
+          state,
         });
       },
     },
 
-    // Get onboarding state
+    "/api/v1/onboarding/message": {
+      POST: async (req) => {
+        const body = await req.json() as { sessionId?: string; message?: string; niche?: string };
+        const { sessionId, message, niche } = body;
+
+        if (!sessionId || (!message && !niche)) {
+          return errorResponse("Missing sessionId or message/niche");
+        }
+
+        let state = onboardingSessions.get(sessionId);
+        if (!state) {
+          state = initializeOnboarding();
+        }
+
+        const response = niche
+          ? processOnboardingInput(message || "", state, niche)
+          : processOnboardingInput(message, state);
+
+        onboardingSessions.set(sessionId, response.state);
+
+        return jsonResponse(response);
+      },
+    },
+
     "/api/v1/onboarding/state/:sessionId": {
       GET: (req) => {
         const sessionId = req.params.sessionId;
         const state = onboardingSessions.get(sessionId);
 
         if (!state) {
-          return new Response(
-            JSON.stringify({ error: "Session not found" }),
-            { status: 404, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
-          );
+          return errorResponse("Session not found", 404);
         }
 
-        return new Response(JSON.stringify({ state }), {
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          },
-        });
+        return jsonResponse({ state });
       },
     },
 
-    // Complete onboarding and create agent
+    // Complete onboarding → Create AI Agent + Build Knowledge Base
     "/api/v1/onboarding/complete": {
       POST: async (req) => {
-        const body = await req.json();
-        const { sessionId } = body;
+        try {
+          const body = await req.json() as { sessionId?: string };
+          const { sessionId } = body;
 
-        const state = onboardingSessions.get(sessionId);
-        if (!state) {
-          return new Response(
-            JSON.stringify({ error: "Session not found" }),
-            { status: 404, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
-          );
-        }
-
-        // Mark as completed
-        state.onboardingCompleted = true;
-        state.createdAt = new Date();
-
-        // TODO: Create agent in database
-        const agentId = crypto.randomUUID();
-
-        // Clean up session
-        onboardingSessions.delete(sessionId);
-
-        return new Response(
-          JSON.stringify({
-            success: true,
-            agentId,
-            state,
-            message: "Your AI Front Desk has been created!",
-          }),
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            },
+          const state = onboardingSessions.get(sessionId);
+          if (!state) {
+            return errorResponse("Session not found", 404);
           }
-        );
+
+          state.onboardingCompleted = true;
+          state.createdAt = new Date();
+
+          // Create agent with full pipeline: DB + prompt + embeddings
+          const result = await createAgentFromOnboarding(state);
+
+          // Clean up session
+          onboardingSessions.delete(sessionId);
+
+          return jsonResponse({
+            success: true,
+            agentId: result.agentId,
+            chunksCreated: result.chunksCreated,
+            message: "Your AI Front Desk has been created!",
+          });
+        } catch (error: any) {
+          console.error("Agent creation failed:", error);
+          return errorResponse(`Agent creation failed: ${error.message}`, 500);
+        }
+      },
+    },
+
+    // ===== Chat Endpoints =====
+
+    // Send a message to an agent
+    "/api/v1/chat": {
+      POST: async (req) => {
+        try {
+          const body = await req.json() as { agentId?: string; message?: string; conversationId?: string; customerName?: string };
+          const { agentId, message, conversationId, customerName } = body;
+
+          if (!agentId || !message) {
+            return errorResponse("Missing agentId or message");
+          }
+
+          const response = await processChat({
+            agentId,
+            message,
+            conversationId,
+            customerName,
+          });
+
+          return jsonResponse(response);
+        } catch (error: any) {
+          console.error("Chat error:", error);
+          return errorResponse(error.message, 500);
+        }
+      },
+    },
+
+    // Get conversation history
+    "/api/v1/chat/:agentId/conversations/:conversationId": {
+      GET: async (req) => {
+        try {
+          const { agentId, conversationId } = req.params;
+          const messages = await getConversationHistory(agentId, conversationId);
+          return jsonResponse({ messages });
+        } catch (error: any) {
+          return errorResponse(error.message, 404);
+        }
+      },
+    },
+
+    // List conversations for an agent
+    "/api/v1/chat/:agentId/conversations": {
+      GET: async (req) => {
+        try {
+          const { agentId } = req.params;
+          const conversations = await listConversations(agentId);
+          return jsonResponse({ conversations });
+        } catch (error: any) {
+          return errorResponse(error.message, 500);
+        }
+      },
+    },
+
+    // ===== Agent Endpoints =====
+
+    // Get agent details
+    "/api/v1/agents/:agentId": {
+      GET: async (req) => {
+        try {
+          const agent = await getAgent(req.params.agentId);
+          if (!agent) {
+            return errorResponse("Agent not found", 404);
+          }
+          return jsonResponse({ agent });
+        } catch (error: any) {
+          return errorResponse(error.message, 500);
+        }
+      },
+    },
+
+    // Rebuild agent knowledge base
+    "/api/v1/agents/:agentId/rebuild": {
+      POST: async (req) => {
+        try {
+          const chunks = await rebuildAgentKnowledge(req.params.agentId);
+          return jsonResponse({ success: true, chunksRebuilt: chunks });
+        } catch (error: any) {
+          return errorResponse(error.message, 500);
+        }
       },
     },
 
