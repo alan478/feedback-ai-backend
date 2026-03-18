@@ -1,20 +1,19 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: frontdesk-ai-db
+    container_name: frontdesk-backend-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: frontdesk
       POSTGRES_PASSWORD: frontdesk_local_dev
-      POSTGRES_DB: frontdesk_ai
+      POSTGRES_DB: frontdesk_backend
     ports:
-      - "5434:5432"
+      - "5435:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    command: ["postgres", "-c", "log_connections=on", "-c", "password_encryption=md5"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U frontdesk -d frontdesk_ai"]
+      test: ["CMD-SHELL", "pg_isready -U frontdesk -d frontdesk_backend"]
       interval: 5s
       timeout: 5s
       retries: 5

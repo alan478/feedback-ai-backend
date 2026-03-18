@@ -1,15 +1,9 @@
 import { serve } from "bun";
-import { processOnboardingInput } from "./services/onboardingService";
-import {
-  createSession,
-  getSession,
-  getSessionRecord,
-  updateSession,
-  completeSession,
-} from "./services/onboardingSessionStore";
-import { createAgentFromOnboarding } from "./services/agentService";
-import { getIndustryFromNiche } from "./services/nicheDetection";
-import type { NicheType } from "./types/onboarding";
+import { processOnboardingInput, initializeOnboarding } from "./services/onboardingService";
+import type { OnboardingState } from "./types/onboarding";
+
+// In-memory storage for onboarding sessions (replace with DB in production)
+const onboardingSessions = new Map<string, OnboardingState>();
 
 const server = serve({
   port: process.env.PORT || 3000,
@@ -21,14 +15,15 @@ const server = serve({
 
     // Initialize onboarding session
     "/api/v1/onboarding/start": {
-      POST: async (req) => {
-        const { id: sessionId, state } = await createSession();
+      POST: (req) => {
+        const sessionId = crypto.randomUUID();
+        const state = initializeOnboarding();
+        onboardingSessions.set(sessionId, state);
 
         return new Response(
           JSON.stringify({
             sessionId,
-            message:
-              "Tell me about your business in one sentence and I'll create a custom assistant for you.",
+            message: "Tell me about your business in one sentence and I'll create a custom assistant for you.",
             stage: 0,
             state,
           }),
@@ -45,68 +40,29 @@ const server = serve({
     // Process onboarding input
     "/api/v1/onboarding/message": {
       POST: async (req) => {
-        const body = await req.json() as { sessionId?: string; message?: string; niche?: string };
+        const body = await req.json();
         const { sessionId, message, niche } = body;
 
-        // Allow empty message if niche is provided (business type selection)
         if (!sessionId || (!message && !niche)) {
           return new Response(
-            JSON.stringify({ error: "Missing sessionId or message" }),
-            {
-              status: 400,
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
+            JSON.stringify({ error: "Missing sessionId or message/niche" }),
+            { status: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
         }
 
-        const record = await getSessionRecord(sessionId);
-        if (!record) {
-          return new Response(
-            JSON.stringify({ error: "Session not found" }),
-            {
-              status: 404,
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
-          );
+        let state = onboardingSessions.get(sessionId);
+        if (!state) {
+          // Session not found, create new one
+          state = initializeOnboarding();
         }
 
-        if (record.completed) {
-          return new Response(
-            JSON.stringify({ error: "Session already completed" }),
-            {
-              status: 400,
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
-          );
-        }
+        // Process the input - if niche is provided directly, use quick start flow
+        const response = niche
+          ? processOnboardingInput(message || "", state, niche)
+          : processOnboardingInput(message, state);
 
-        let state = record.state as unknown as import("./types/onboarding").OnboardingState;
-
-        // If niche is provided directly (business type selection from modal),
-        // skip to niche-specific questions
-        if (niche && !message && state.currentStage === 0) {
-          state.niche = niche as NicheType;
-          state.industry = getIndustryFromNiche(niche as NicheType);
-          state.nicheConfidence = 1.0;
-          state.currentStage = 2; // NICHE_DETECTION stage
-          state.businessDescription = `Selected business type: ${niche}`;
-        }
-
-        // Process the input (use niche if message is empty)
-        const inputMessage = message || niche || "";
-        const response = processOnboardingInput(inputMessage, state);
-
-        // Update session in DB
-        await updateSession(sessionId, response.state);
+        // Update session
+        onboardingSessions.set(sessionId, response.state);
 
         return new Response(JSON.stringify(response), {
           headers: {
@@ -119,29 +75,56 @@ const server = serve({
 
     // Get onboarding state
     "/api/v1/onboarding/state/:sessionId": {
-      GET: async (req) => {
+      GET: (req) => {
         const sessionId = req.params.sessionId;
-        const sessionRecord = await getSessionRecord(sessionId);
+        const state = onboardingSessions.get(sessionId);
 
-        if (!sessionRecord) {
+        if (!state) {
           return new Response(
             JSON.stringify({ error: "Session not found" }),
-            {
-              status: 404,
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
+            { status: 404, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
           );
         }
 
+        return new Response(JSON.stringify({ state }), {
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      },
+    },
+
+    // Complete onboarding and create agent
+    "/api/v1/onboarding/complete": {
+      POST: async (req) => {
+        const body = await req.json();
+        const { sessionId } = body;
+
+        const state = onboardingSessions.get(sessionId);
+        if (!state) {
+          return new Response(
+            JSON.stringify({ error: "Session not found" }),
+            { status: 404, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+          );
+        }
+
+        // Mark as completed
+        state.onboardingCompleted = true;
+        state.createdAt = new Date();
+
+        // TODO: Create agent in database
+        const agentId = crypto.randomUUID();
+
+        // Clean up session
+        onboardingSessions.delete(sessionId);
+
         return new Response(
           JSON.stringify({
-            state: sessionRecord.state,
-            completed: sessionRecord.completed,
-            agentId: sessionRecord.agentId,
-            currentStage: sessionRecord.currentStage,
+            success: true,
+            agentId,
+            state,
+            message: "Your AI Front Desk has been created!",
           }),
           {
             headers: {
@@ -150,100 +133,6 @@ const server = serve({
             },
           }
         );
-      },
-    },
-
-    // Complete onboarding and create agent
-    "/api/v1/onboarding/complete": {
-      POST: async (req) => {
-        const body = await req.json() as { sessionId?: string };
-        const { sessionId } = body;
-
-        if (!sessionId) {
-          return new Response(
-            JSON.stringify({ error: "Missing sessionId" }),
-            {
-              status: 400,
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
-          );
-        }
-
-        const sessionRecord = await getSessionRecord(sessionId);
-        if (!sessionRecord) {
-          return new Response(
-            JSON.stringify({ error: "Session not found" }),
-            {
-              status: 404,
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
-          );
-        }
-
-        // Idempotency: if already completed, return existing agentId
-        if (sessionRecord.completed && sessionRecord.agentId) {
-          return new Response(
-            JSON.stringify({
-              success: true,
-              agentId: sessionRecord.agentId,
-              state: sessionRecord.state,
-              message: "Your AI Front Desk has already been created!",
-            }),
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
-          );
-        }
-
-        const state = sessionRecord.state as unknown as import("./types/onboarding").OnboardingState;
-        state.onboardingCompleted = true;
-        state.createdAt = new Date();
-
-        try {
-          // Create agent in database
-          // TODO: Replace "default-org" with real org from auth context
-          const agentId = await createAgentFromOnboarding("default-org", state);
-
-          // Link session to agent and mark complete
-          await completeSession(sessionId, agentId);
-
-          return new Response(
-            JSON.stringify({
-              success: true,
-              agentId,
-              state,
-              message: "Your AI Front Desk has been created!",
-            }),
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
-          );
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "Failed to create agent";
-          return new Response(
-            JSON.stringify({ error: message, success: false }),
-            {
-              status: 400,
-              headers: {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-              },
-            }
-          );
-        }
       },
     },
 
