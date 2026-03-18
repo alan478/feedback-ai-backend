@@ -1,10 +1,11 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  extensions = [vector]
 }
 
 enum QuestionType {
@@ -59,4 +60,70 @@ model OnboardingAnswer {
 
   @@unique([sessionId, questionId])
   @@index([sessionId])
+}
+
+// ===== AI Agent Pipeline Models =====
+
+model Agent {
+  id                  String   @id @default(cuid())
+  businessName        String
+  businessDescription String?
+  niche               String
+  tone                String   @default("friendly")
+  systemPrompt        String   @db.Text
+  config              Json     // Full onboarding state snapshot
+  escalationStrategy  String   @default("collect_and_notify")
+  handoffContact      String?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  knowledgeChunks KnowledgeChunk[]
+  conversations   Conversation[]
+}
+
+model KnowledgeChunk {
+  id        String                      @id @default(cuid())
+  agentId   String
+  category  String                      // services, insurance, hours, emergency, booking, general
+  content   String   @db.Text
+  embedding Unsupported("vector(3072)") // xAI v3 embedding dimension
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([agentId, category])           // Fast lookup by agent + category
+}
+
+model Conversation {
+  id           String   @id @default(cuid())
+  agentId      String
+  customerName String?
+  status       String   @default("active") // active, closed, escalated
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  agent    Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([agentId])
+  @@index([agentId, status])              // Fast lookup active conversations per agent
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String   // user, assistant
+  content        String   @db.Text
+  sources        Json?    // categories used for RAG context
+  action         Json?    // {type: "booking", data: {...}} if action detected
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])    // Fast message history in order
 }
