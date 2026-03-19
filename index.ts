@@ -3,6 +3,8 @@ import { processOnboardingInput, initializeOnboarding } from "./services/onboard
 import { createAgentFromOnboarding, getAgent, rebuildAgentKnowledge } from "./services/agentPipeline";
 import { processChat, getConversationHistory, listConversations } from "./services/chatService";
 import { startQueueProcessor } from "./services/actionQueue";
+import { registerUser, loginUser } from "./services/authService";
+import { requireAuth } from "./middleware/auth";
 import prisma from "./services/db";
 import type { OnboardingState } from "./types/onboarding";
 
@@ -347,6 +349,147 @@ const server = serve({
           return jsonResponse({ escalation });
         } catch (error: any) {
           return errorResponse(error.message, 500);
+        }
+      },
+    },
+
+    // ===== Auth Endpoints =====
+
+    "/api/v1/auth/register": {
+      POST: async (req) => {
+        try {
+          const body = await req.json() as { email?: string; password?: string; name?: string };
+          const { email, password, name } = body;
+
+          if (!email || !password) {
+            return errorResponse("Email and password are required", 400);
+          }
+
+          const result = await registerUser(email, password, name);
+          return jsonResponse(result, 201);
+        } catch (error: any) {
+          const status = error.status || 500;
+          return errorResponse(error.message, status);
+        }
+      },
+    },
+
+    "/api/v1/auth/login": {
+      POST: async (req) => {
+        try {
+          const body = await req.json() as { email?: string; password?: string };
+          const { email, password } = body;
+
+          if (!email || !password) {
+            return errorResponse("Email and password are required", 400);
+          }
+
+          const result = await loginUser(email, password);
+          return jsonResponse(result);
+        } catch (error: any) {
+          const status = error.status || 500;
+          return errorResponse(error.message, status);
+        }
+      },
+    },
+
+    "/api/v1/auth/me": {
+      GET: async (req) => {
+        try {
+          const auth = await requireAuth(req);
+
+          const user = await prisma.user.findUnique({
+            where: { id: auth.userId },
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              agents: {
+                select: { id: true, businessName: true, niche: true, isActive: true },
+              },
+            },
+          });
+
+          if (!user) {
+            return errorResponse("User not found", 404);
+          }
+
+          return jsonResponse({
+            user: {
+              ...user,
+              agents: user.agents.map((a) => ({
+                ...a,
+                status: a.isActive ? "active" : "inactive",
+              })),
+            },
+          });
+        } catch (error: any) {
+          const status = error.status || 500;
+          return errorResponse(error.message, status);
+        }
+      },
+    },
+
+    "/api/v1/auth/claim-agent": {
+      POST: async (req) => {
+        try {
+          const auth = await requireAuth(req);
+          const body = await req.json() as { agentId?: string };
+          const { agentId } = body;
+
+          if (!agentId) {
+            return errorResponse("agentId is required", 400);
+          }
+
+          const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+          if (!agent) {
+            return errorResponse("Agent not found", 404);
+          }
+
+          if (agent.userId) {
+            return errorResponse("Agent is already claimed", 409);
+          }
+
+          const updated = await prisma.agent.update({
+            where: { id: agentId },
+            data: { userId: auth.userId },
+            select: { id: true, businessName: true, userId: true },
+          });
+
+          return jsonResponse({ agent: updated });
+        } catch (error: any) {
+          const status = error.status || 500;
+          return errorResponse(error.message, status);
+        }
+      },
+    },
+
+    "/api/v1/users/:userId/agents": {
+      GET: async (req) => {
+        try {
+          const auth = await requireAuth(req);
+          const { userId } = req.params;
+
+          if (auth.userId !== userId) {
+            return errorResponse("Forbidden", 403);
+          }
+
+          const agents = await prisma.agent.findMany({
+            where: { userId },
+            select: {
+              id: true,
+              businessName: true,
+              businessDescription: true,
+              niche: true,
+              isActive: true,
+              createdAt: true,
+            },
+          });
+
+          return jsonResponse({ agents });
+        } catch (error: any) {
+          const status = error.status || 500;
+          return errorResponse(error.message, status);
         }
       },
     },
