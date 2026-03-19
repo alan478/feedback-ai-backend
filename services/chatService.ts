@@ -5,6 +5,7 @@
 
 import prisma from "./db";
 import { generateRAGResponse, type RAGResponse } from "./ragService";
+import { enqueueAction } from "./actionQueue";
 
 interface ChatRequest {
   agentId: string;
@@ -91,7 +92,7 @@ export async function processChat(req: ChatRequest): Promise<ChatResponse> {
   );
 
   // Save assistant response
-  await prisma.message.create({
+  const assistantMessage = await prisma.message.create({
     data: {
       conversationId,
       role: "assistant",
@@ -101,9 +102,9 @@ export async function processChat(req: ChatRequest): Promise<ChatResponse> {
     },
   });
 
-  // Handle actions
+  // Enqueue actions for async processing
   if (ragResponse.action) {
-    await handleAction(req.agentId, conversationId, ragResponse.action);
+    await handleAction(req.agentId, conversationId, assistantMessage.id, ragResponse.action);
   }
 
   return {
@@ -115,39 +116,21 @@ export async function processChat(req: ChatRequest): Promise<ChatResponse> {
 }
 
 /**
- * Handle detected actions (booking, escalation, etc.)
+ * Handle detected actions by enqueuing them for async processing
  */
 async function handleAction(
   agentId: string,
   conversationId: string,
+  messageId: string,
   action: { type: string; data: Record<string, any> }
 ): Promise<void> {
-  switch (action.type) {
-    case "escalate":
-      // Mark conversation as escalated
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { status: "escalated" },
-      });
-      break;
-
-    case "booking":
-      // Store booking data in conversation metadata
-      const conversation = await prisma.conversation.findUnique({
-        where: { id: conversationId },
-      });
-      const existingMeta = (conversation?.metadata as Record<string, any>) || {};
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: {
-          metadata: {
-            ...existingMeta,
-            booking: action.data,
-          },
-        },
-      });
-      break;
-  }
+  await enqueueAction({
+    agentId,
+    conversationId,
+    messageId,
+    actionType: action.type,
+    payload: action.data,
+  });
 }
 
 /**

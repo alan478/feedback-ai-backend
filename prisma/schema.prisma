@@ -80,6 +80,10 @@ model Agent {
 
   knowledgeChunks KnowledgeChunk[]
   conversations   Conversation[]
+  actionQueues    ActionQueue[]
+  bookings        Booking[]
+  leads           Lead[]
+  escalations     Escalation[]
 }
 
 model KnowledgeChunk {
@@ -106,8 +110,12 @@ model Conversation {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  agent    Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  messages Message[]
+  agent        Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages     Message[]
+  actionQueues ActionQueue[]
+  bookings     Booking[]
+  leads        Lead[]
+  escalations  Escalation[]
 
   @@index([agentId])
   @@index([agentId, status])              // Fast lookup active conversations per agent
@@ -122,8 +130,104 @@ model Message {
   action         Json?    // {type: "booking", data: {...}} if action detected
   createdAt      DateTime @default(now())
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation  Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actionQueues  ActionQueue[]
 
   @@index([conversationId])
   @@index([conversationId, createdAt])    // Fast message history in order
+}
+
+// ===== Action Queue System =====
+
+model ActionQueue {
+  id             String    @id @default(cuid())
+  agentId        String
+  conversationId String
+  messageId      String
+  actionType     String    // 'booking', 'escalate', 'lead', etc.
+  payload        Json      // Action data from LLM
+  status         String    @default("pending") // pending, processing, completed, failed
+  priority       Int       @default(0) // Higher = more urgent
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  error          String?
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  booking      Booking?
+  lead         Lead?
+  escalation   Escalation?
+
+  @@index([agentId, status])
+  @@index([status, priority, createdAt])
+}
+
+model Booking {
+  id              String    @id @default(cuid())
+  agentId         String
+  conversationId  String
+  actionQueueId   String    @unique
+  customerName    String?
+  customerEmail   String?
+  customerPhone   String?
+  service         String
+  requestedDate   DateTime?
+  requestedDateRaw String?
+  status          String    @default("requested") // requested, confirmed, cancelled, completed
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actionQueue  ActionQueue  @relation(fields: [actionQueueId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, status])
+  @@index([agentId, requestedDate])
+}
+
+model Lead {
+  id             String   @id @default(cuid())
+  agentId        String
+  conversationId String
+  actionQueueId  String   @unique
+  name           String?
+  email          String?
+  phone          String?
+  source         String   @default("chat")
+  interest       String?
+  status         String   @default("new") // new, contacted, qualified, converted
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actionQueue  ActionQueue  @relation(fields: [actionQueueId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, status])
+}
+
+model Escalation {
+  id             String    @id @default(cuid())
+  agentId        String
+  conversationId String
+  actionQueueId  String    @unique
+  reason         String
+  customerInfo   Json?
+  status         String    @default("pending") // pending, assigned, resolved
+  assignedTo     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actionQueue  ActionQueue  @relation(fields: [actionQueueId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, status])
 }
