@@ -298,6 +298,12 @@ function handleNicheDeepening(input: string, state: OnboardingState): Onboarding
 
   const answeredIds = (state.nicheData as any).answeredQuestionIds as string[];
 
+  // Capture business name if not set yet (Quick Start flow asks for name first)
+  if (state.niche && !state.businessName && answeredIds.length === 0) {
+    state.businessName = input;
+    return startNicheDeepening(state);
+  }
+
   // Handle skip/don't know
   if (lowerInput.includes("skip") || lowerInput.includes("don't know") || lowerInput.includes("not sure") || lowerInput === "idk") {
     if (!state.fieldsSkippedByUser) {

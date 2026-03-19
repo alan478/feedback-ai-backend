@@ -28,8 +28,8 @@ interface RAGResponse {
 export async function searchKnowledge(
   agentId: string,
   query: string,
-  topK: number = 3,
-  minSimilarity: number = 0.3
+  topK: number = 5,
+  minSimilarity: number = 0.2
 ): Promise<RAGContext[]> {
   // Embed the query
   const queryEmbedding = await generateEmbedding(query);
