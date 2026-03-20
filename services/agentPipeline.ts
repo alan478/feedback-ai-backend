@@ -31,6 +31,7 @@ export async function createAgentFromOnboarding(
     capabilities: state.agentCapabilities || ["answer_questions"],
     escalationStrategy: state.escalationStrategy || "collect_and_notify",
     handoffContact: state.handoffContact,
+    primaryServices: state.primaryServices,
   });
 
   // Enhance with strict RAG instructions

@@ -279,6 +279,12 @@ function handleNicheDeepening(input: string, state: OnboardingState): Onboarding
     };
   }
 
+  // Handle business name if not set (Quick Start flow)
+  if (!state.businessName) {
+    state.businessName = input.trim();
+    return startNicheDeepening(state);
+  }
+
   const lowerInput = input.toLowerCase();
 
   // Initialize nicheData if not exists
@@ -342,8 +348,28 @@ function handleNicheDeepening(input: string, state: OnboardingState): Onboarding
   );
 
   if (currentQuestion) {
-    // Store the answer with question ID
-    (state.nicheData as any)[currentQuestion.id] = input;
+    // Route the answer to the correct state field
+    if (currentQuestion.field === 'primaryServices') {
+      if (currentQuestion.type === 'multi-select') {
+        // Multi-select: parse comma-separated values, map to labels
+        const values = input.split(',').map(v => v.trim()).filter(Boolean);
+        const labels = values.map(v => {
+          const opt = currentQuestion.options?.find(o => o.value === v);
+          return opt?.label || v;
+        });
+        state.primaryServices = [...(state.primaryServices || []), ...labels];
+      } else {
+        // Text input: split by comma, append to existing
+        const services = input.split(',').map(v => v.trim()).filter(Boolean);
+        state.primaryServices = [...(state.primaryServices || []), ...services];
+      }
+    } else if (currentQuestion.field === 'nicheData') {
+      (state.nicheData as any)[currentQuestion.id] = input;
+    } else {
+      // Store in the target field directly
+      (state as any)[currentQuestion.field] = input;
+    }
+
     (state.nicheData as any).answeredQuestions.push({
       question: currentQuestion.id,
       answer: input,
