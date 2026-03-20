@@ -24,7 +24,7 @@ export async function createAgentFromOnboarding(
   state: OnboardingState
 ): Promise<CreateAgentResult> {
   // Step 1: Generate system prompt based on niche
-  const systemPrompt = generateSystemPrompt({
+  const basePrompt = generateSystemPrompt({
     businessName: state.businessName || "Business",
     niche: state.niche || "generic",
     tone: state.tone || "friendly",
@@ -32,6 +32,16 @@ export async function createAgentFromOnboarding(
     escalationStrategy: state.escalationStrategy || "collect_and_notify",
     handoffContact: state.handoffContact,
   });
+
+  // Enhance with strict RAG instructions
+  const systemPrompt = `${basePrompt}
+
+## CRITICAL: Context-Based Answering Rules
+- You MUST answer ONLY using the CONTEXT provided below. Do NOT use general knowledge.
+- When the context contains specific details (services, hours, policies, prices), LIST them explicitly in your response.
+- Do NOT give vague or generic responses. Be specific and reference actual details from the context.
+- If the context does not contain information to answer the question, say: "I don't have that specific information right now. Let me connect you with our team for an accurate answer."
+- NEVER make up or fabricate information that is not in the provided context.`;
 
   // Step 2: Create Agent in DB
   const agent = await prisma.agent.create({

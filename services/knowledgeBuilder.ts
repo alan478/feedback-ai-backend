@@ -116,6 +116,33 @@ function chunkOnboardingData(state: OnboardingState): KnowledgeChunkInput[] {
     }
   }
 
+  // Process flat nicheData from message-based onboarding flow
+  // (The structured dental path above handles Quick Start; this handles chat-based onboarding)
+  if (state.nicheData) {
+    const questionIdToLabel: Record<string, string> = {
+      dental_services: "dental services offered",
+      dental_insurance: "insurance acceptance",
+      dental_insurance_providers: "accepted insurance providers",
+      dental_emergency: "emergency care",
+      dental_clinic_hours: "operating hours",
+      dental_booking: "booking policy",
+    };
+
+    for (const [key, value] of Object.entries(state.nicheData)) {
+      // Skip internal tracking arrays
+      if (key === "answeredQuestions" || key === "answeredQuestionIds") continue;
+      // Skip if already handled by the structured dental path above
+      if (key === "dental" && typeof value === "object") continue;
+
+      const label = questionIdToLabel[key] || key.replace(/_/g, " ");
+      chunks.push({
+        category: label,
+        content: `About ${biz} - ${label}: ${value}`,
+        metadata: { questionId: key },
+      });
+    }
+  }
+
   // Primary services (generic, works for any niche)
   if (state.primaryServices?.length) {
     chunks.push({
