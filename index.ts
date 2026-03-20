@@ -6,6 +6,8 @@ import { startQueueProcessor } from "./services/actionQueue";
 import { registerUser, loginUser } from "./services/authService";
 import { requireAuth } from "./middleware/auth";
 import prisma from "./services/db";
+import { generateEmbedding } from "./services/embeddingService";
+import { generateSystemPrompt } from "./prompts/dentistAgent";
 import type { OnboardingState } from "./types/onboarding";
 
 // In-memory storage for onboarding sessions (replace with DB in production)
@@ -177,7 +179,7 @@ const server = serve({
 
     // ===== Agent Endpoints =====
 
-    // Get agent details
+    // Get agent details + Update agent configuration
     "/api/v1/agents/:agentId": {
       GET: async (req) => {
         try {
@@ -185,6 +187,49 @@ const server = serve({
           if (!agent) {
             return errorResponse("Agent not found", 404);
           }
+          return jsonResponse({ agent });
+        } catch (error: any) {
+          return errorResponse(error.message, 500);
+        }
+      },
+      PUT: async (req) => {
+        try {
+          const { agentId } = req.params;
+          const body = await req.json() as Record<string, any>;
+
+          const existing = await prisma.agent.findUnique({ where: { id: agentId } });
+          if (!existing) {
+            return errorResponse("Agent not found", 404);
+          }
+
+          const existingConfig = (existing.config as Record<string, any>) || {};
+          const updatedConfig = body.config
+            ? { ...existingConfig, ...body.config }
+            : existingConfig;
+
+          const updateData: Record<string, any> = { config: updatedConfig };
+          if (body.businessName !== undefined) updateData.businessName = body.businessName;
+          if (body.businessDescription !== undefined) updateData.businessDescription = body.businessDescription;
+          if (body.niche !== undefined) updateData.niche = body.niche;
+          if (body.tone !== undefined) updateData.tone = body.tone;
+          if (body.escalationStrategy !== undefined) updateData.escalationStrategy = body.escalationStrategy;
+          if (body.handoffContact !== undefined) updateData.handoffContact = body.handoffContact;
+
+          // Regenerate system prompt
+          updateData.systemPrompt = generateSystemPrompt({
+            businessName: updateData.businessName || existing.businessName,
+            niche: updateData.niche || existing.niche,
+            tone: updateData.tone || existing.tone,
+            capabilities: updatedConfig.agentCapabilities || [],
+            escalationStrategy: updateData.escalationStrategy || existing.escalationStrategy,
+            handoffContact: updateData.handoffContact ?? existing.handoffContact ?? undefined,
+          });
+
+          const agent = await prisma.agent.update({
+            where: { id: agentId },
+            data: updateData,
+          });
+
           return jsonResponse({ agent });
         } catch (error: any) {
           return errorResponse(error.message, 500);
@@ -198,6 +243,83 @@ const server = serve({
         try {
           const chunks = await rebuildAgentKnowledge(req.params.agentId);
           return jsonResponse({ success: true, chunksRebuilt: chunks });
+        } catch (error: any) {
+          return errorResponse(error.message, 500);
+        }
+      },
+    },
+
+    // ===== Knowledge Endpoints =====
+
+    "/api/v1/agents/:agentId/knowledge": {
+      GET: async (req) => {
+        try {
+          const { agentId } = req.params;
+          const chunks = await prisma.knowledgeChunk.findMany({
+            where: { agentId },
+            select: {
+              id: true,
+              category: true,
+              content: true,
+              metadata: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          return jsonResponse({ chunks });
+        } catch (error: any) {
+          return errorResponse(error.message, 500);
+        }
+      },
+      POST: async (req) => {
+        try {
+          const { agentId } = req.params;
+          const body = await req.json() as { text?: string; type?: string };
+          const { text, type } = body;
+
+          if (!text || !type) {
+            return errorResponse("text and type are required");
+          }
+
+          const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+          if (!agent) {
+            return errorResponse("Agent not found", 404);
+          }
+
+          const embedding = await generateEmbedding(text);
+          const vectorStr = `[${embedding.join(",")}]`;
+
+          await prisma.$executeRawUnsafe(
+            `INSERT INTO "KnowledgeChunk" (id, "agentId", category, content, embedding, metadata, "createdAt")
+             VALUES (gen_random_uuid()::text, $1, $2, $3, $4::vector, $5::jsonb, NOW())`,
+            agentId,
+            type,
+            text,
+            vectorStr,
+            JSON.stringify({ addedManually: true, type })
+          );
+
+          return jsonResponse({ success: true, message: "Knowledge added" }, 201);
+        } catch (error: any) {
+          return errorResponse(error.message, 500);
+        }
+      },
+    },
+
+    "/api/v1/agents/:agentId/knowledge/:chunkId": {
+      DELETE: async (req) => {
+        try {
+          const { agentId, chunkId } = req.params;
+
+          const chunk = await prisma.knowledgeChunk.findFirst({
+            where: { id: chunkId, agentId },
+          });
+          if (!chunk) {
+            return errorResponse("Knowledge chunk not found", 404);
+          }
+
+          await prisma.knowledgeChunk.delete({ where: { id: chunkId } });
+          return jsonResponse({ success: true });
         } catch (error: any) {
           return errorResponse(error.message, 500);
         }
