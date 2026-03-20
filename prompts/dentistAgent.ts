@@ -10,6 +10,7 @@ interface AgentPromptConfig {
   capabilities: string[];
   escalationStrategy: string;
   handoffContact?: string;
+  primaryServices?: string[];
 }
 
 /**
@@ -27,6 +28,7 @@ export function generateDentistPrompt(config: AgentPromptConfig): string {
 
 ## What You Can Do
 ${config.capabilities.map((c) => `- ${formatCapability(c)}`).join("\n")}
+${config.primaryServices?.length ? `\n## Services Offered\n${config.primaryServices.map((s) => `- ${s}`).join("\n")}` : ""}
 
 ## Rules
 - ONLY answer based on the CONTEXT provided below. Do not make up information.
@@ -73,6 +75,7 @@ export function generateGenericPrompt(config: AgentPromptConfig): string {
 
 ## What You Can Do
 ${config.capabilities.map((c) => `- ${formatCapability(c)}`).join("\n")}
+${config.primaryServices?.length ? `\n## Services Offered\n${config.primaryServices.map((s) => `- ${s}`).join("\n")}` : ""}
 
 ## Rules
 - ONLY answer based on the CONTEXT provided below. Do not make up information.
