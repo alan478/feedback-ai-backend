@@ -29,6 +29,9 @@ interface ChatResponse {
  * Creates or continues a conversation, runs RAG, saves messages
  */
 export async function processChat(req: ChatRequest): Promise<ChatResponse> {
+  console.log(`[CHAT] processChat called — agentId: ${req.agentId}, conversationId: ${req.conversationId || "new conversation"}, message: "${req.message}"`);
+
+  try {
   // Validate agent exists and is active
   const agent = await prisma.agent.findUnique({
     where: { id: req.agentId },
@@ -91,6 +94,8 @@ export async function processChat(req: ChatRequest): Promise<ChatResponse> {
     agent.systemPrompt
   );
 
+  console.log(`[CHAT] RAG response — action detected: ${ragResponse.action ? ragResponse.action.type : "none"}, sources: [${ragResponse.sources.join(", ")}]`);
+
   // Save assistant response
   const assistantMessage = await prisma.message.create({
     data: {
@@ -113,6 +118,10 @@ export async function processChat(req: ChatRequest): Promise<ChatResponse> {
     sources: ragResponse.sources,
     action: ragResponse.action,
   };
+  } catch (error) {
+    console.error(`[CHAT] Error in processChat:`, error instanceof Error ? error.stack : error);
+    throw error;
+  }
 }
 
 /**
