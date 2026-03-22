@@ -44,7 +44,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   }
 
   const data = (await response.json()) as { data: { embedding: number[] }[] };
-  return data.data[0].embedding;
+  return data.data[0]!.embedding;
 }
 
 /**
@@ -73,7 +73,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 }
 
 /**
- * Generate a chat completion from Grok
+ * Generate a chat completion from OpenAI
  */
 export async function generateChatCompletion(
   messages: { role: string; content: string }[],
@@ -104,7 +104,7 @@ export async function generateChatCompletion(
   }
 
   const data = (await response.json()) as { choices: { message: { content: string } }[] };
-  return data.choices[0].message.content;
+  return data.choices[0]!.message.content;
 }
 
 export { EMBEDDING_DIMENSION };
