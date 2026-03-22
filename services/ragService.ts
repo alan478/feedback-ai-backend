@@ -69,6 +69,13 @@ export async function generateRAGResponse(
   // Step 1: Retrieve relevant knowledge
   const contexts = await searchKnowledge(agentId, userMessage);
 
+  // Log search results
+  console.log(`[RAG] Query: "${userMessage}"`);
+  console.log(`[RAG] Chunks found: ${contexts.length}`);
+  for (const c of contexts) {
+    console.log(`[RAG]   - category: ${c.category}, similarity: ${c.similarity.toFixed(4)}, content: "${c.content.substring(0, 100)}..."`);
+  }
+
   // Step 2: Build the context block
   const contextBlock =
     contexts.length > 0
@@ -89,11 +96,18 @@ export async function generateRAGResponse(
     },
   ];
 
+  // Log context being sent to LLM
+  console.log(`[RAG] Context block being sent to LLM:\n${contextBlock}`);
+  console.log(`[RAG] Conversation history messages: ${conversationHistory.length}`);
+
   // Step 4: Generate response
   const rawReply = await generateChatCompletion(messages, {
     temperature: 0.7,
     maxTokens: 512,
   });
+
+  // Log raw LLM reply
+  console.log(`[RAG] Raw LLM reply (first 200 chars): "${(rawReply || "").substring(0, 200)}"`);
 
   // Step 5: Parse action if present
   const { reply, action } = parseAction(rawReply || "");

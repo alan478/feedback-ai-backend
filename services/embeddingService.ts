@@ -3,8 +3,8 @@
  * Used for both storing knowledge chunks and querying them
  */
 
-const OPENAI_API_URL = "https://api.openai.com/v1/embeddings";
-const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
+const API_URL = "https://api.openai.com/v1/embeddings";
+const CHAT_URL = "https://api.openai.com/v1/chat/completions";
 const EMBEDDING_MODEL = "text-embedding-3-large";
 const CHAT_MODEL = "gpt-4o-mini";
 const EMBEDDING_DIMENSION = 3072;
@@ -21,7 +21,9 @@ function getApiKey(): string {
  * Generate embedding vector for a text string
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const response = await fetch(OPENAI_API_URL, {
+  console.log(`[EMBED] Generating embedding, API URL: ${API_URL}`);
+  const startTime = Date.now();
+  const response = await fetch(API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -32,6 +34,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       input: text,
     }),
   });
+
+  const elapsed = Date.now() - startTime;
+  console.log(`[EMBED] Embedding API call took ${elapsed}ms`);
 
   if (!response.ok) {
     const error = await response.text();
@@ -46,7 +51,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
  * Generate embeddings for multiple texts in batch
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -74,7 +79,9 @@ export async function generateChatCompletion(
   messages: { role: string; content: string }[],
   options?: { temperature?: number; maxTokens?: number }
 ): Promise<string> {
-  const response = await fetch(OPENAI_CHAT_URL, {
+  console.log(`[EMBED] Chat completion API URL: ${CHAT_URL}, model: ${CHAT_MODEL}`);
+  const startTime = Date.now();
+  const response = await fetch(CHAT_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -87,6 +94,9 @@ export async function generateChatCompletion(
       max_tokens: options?.maxTokens ?? 1024,
     }),
   });
+
+  const elapsed = Date.now() - startTime;
+  console.log(`[EMBED] Chat completion API call took ${elapsed}ms (model: ${CHAT_MODEL})`);
 
   if (!response.ok) {
     const error = await response.text();
