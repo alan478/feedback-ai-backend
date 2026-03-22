@@ -21,6 +21,8 @@ function getApiKey(): string {
  * Generate embedding vector for a text string
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
+  console.log(`[EMBED] Generating embedding, API URL: ${XAI_API_URL}`);
+  const startTime = Date.now();
   const response = await fetch(XAI_API_URL, {
     method: "POST",
     headers: {
@@ -32,6 +34,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       input: text,
     }),
   });
+
+  const elapsed = Date.now() - startTime;
+  console.log(`[EMBED] Embedding API call took ${elapsed}ms`);
 
   if (!response.ok) {
     const error = await response.text();
@@ -74,6 +79,8 @@ export async function generateChatCompletion(
   messages: { role: string; content: string }[],
   options?: { temperature?: number; maxTokens?: number }
 ): Promise<string> {
+  console.log(`[EMBED] Chat completion API URL: ${XAI_CHAT_URL}, model: ${CHAT_MODEL}`);
+  const startTime = Date.now();
   const response = await fetch(XAI_CHAT_URL, {
     method: "POST",
     headers: {
@@ -87,6 +94,9 @@ export async function generateChatCompletion(
       max_tokens: options?.maxTokens ?? 1024,
     }),
   });
+
+  const elapsed = Date.now() - startTime;
+  console.log(`[EMBED] Chat completion API call took ${elapsed}ms (model: ${CHAT_MODEL})`);
 
   if (!response.ok) {
     const error = await response.text();
