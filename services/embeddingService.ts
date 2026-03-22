@@ -1,18 +1,18 @@
 /**
- * Embedding Service - Generates vector embeddings via xAI/Grok API
+ * Embedding Service - Generates vector embeddings via OpenAI API
  * Used for both storing knowledge chunks and querying them
  */
 
-const XAI_API_URL = "https://api.x.ai/v1/embeddings";
-const XAI_CHAT_URL = "https://api.x.ai/v1/chat/completions";
-const EMBEDDING_MODEL = "v3";
-const CHAT_MODEL = "grok-3-mini";
+const OPENAI_API_URL = "https://api.openai.com/v1/embeddings";
+const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
+const EMBEDDING_MODEL = "text-embedding-3-large";
+const CHAT_MODEL = "gpt-4o-mini";
 const EMBEDDING_DIMENSION = 3072;
 
 function getApiKey(): string {
-  const key = process.env.XAI_API_KEY;
+  const key = process.env.OPENAI_API_KEY;
   if (!key) {
-    throw new Error("XAI_API_KEY environment variable is required");
+    throw new Error("OPENAI_API_KEY environment variable is required");
   }
   return key;
 }
@@ -21,7 +21,7 @@ function getApiKey(): string {
  * Generate embedding vector for a text string
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const response = await fetch(XAI_API_URL, {
+  const response = await fetch(OPENAI_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -35,18 +35,18 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`xAI Embedding API error: ${response.status} - ${error}`);
+    throw new Error(`OpenAI Embedding API error: ${response.status} - ${error}`);
   }
 
   const data = (await response.json()) as { data: { embedding: number[] }[] };
-  return data.data[0].embedding;
+  return data.data[0]!.embedding;
 }
 
 /**
  * Generate embeddings for multiple texts in batch
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  const response = await fetch(XAI_API_URL, {
+  const response = await fetch(OPENAI_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -60,7 +60,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`xAI Embedding API error: ${response.status} - ${error}`);
+    throw new Error(`OpenAI Embedding API error: ${response.status} - ${error}`);
   }
 
   const data = (await response.json()) as { data: { embedding: number[] }[] };
@@ -68,13 +68,13 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 }
 
 /**
- * Generate a chat completion from Grok
+ * Generate a chat completion from OpenAI
  */
 export async function generateChatCompletion(
   messages: { role: string; content: string }[],
   options?: { temperature?: number; maxTokens?: number }
 ): Promise<string> {
-  const response = await fetch(XAI_CHAT_URL, {
+  const response = await fetch(OPENAI_CHAT_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -90,11 +90,11 @@ export async function generateChatCompletion(
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`xAI Chat API error: ${response.status} - ${error}`);
+    throw new Error(`OpenAI Chat API error: ${response.status} - ${error}`);
   }
 
   const data = (await response.json()) as { choices: { message: { content: string } }[] };
-  return data.choices[0].message.content;
+  return data.choices[0]!.message.content;
 }
 
 export { EMBEDDING_DIMENSION };
