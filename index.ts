@@ -35,6 +35,13 @@ const server = serve({
       headers: { "Content-Type": "application/json" },
     }),
 
+    // ===== Ping Endpoint =====
+    "/api/v1/ping": {
+      GET: () => {
+        return jsonResponse({ status: "ok", uptime: process.uptime() });
+      },
+    },
+
     // ===== Onboarding Endpoints =====
 
     "/api/v1/onboarding/start": {
