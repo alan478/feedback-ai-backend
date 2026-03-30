@@ -35,6 +35,13 @@ const server = serve({
       headers: { "Content-Type": "application/json" },
     }),
 
+    // Health check with timestamp
+    "/api/v1/ping": {
+      GET: () => {
+        return jsonResponse({ status: "ok", timestamp: Date.now() });
+      },
+    },
+
     // ===== Onboarding Endpoints =====
 
     "/api/v1/onboarding/start": {
